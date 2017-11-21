@@ -1,0 +1,15 @@
+import Image from PIL
+import os
+
+def main():
+	images = os.listdir('./data/')
+
+	for image in images:
+		pngImage = Image.open(image)
+		rgbImage = pngImage.convert('RGB')
+		name = image[:-4] + ".jpg"
+		rgbImage.save(name)
+
+
+if __name__ == "__main__":
+	main()

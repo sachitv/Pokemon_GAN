@@ -15,10 +15,10 @@ slim = tf.contrib.slim
 
 HEIGHT, WIDTH, CHANNEL = 128, 128, 3
 BATCH_SIZE = 64
-EPOCH = 5000
-os.environ['CUDA_VISIBLE_DEVICES'] = '15'
-version = 'newPokemon'
-newPoke_path = './' + version
+EPOCH = 10000
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+modelName = 'newPokemon'
+newPoke_path = './' + modelName
 
 def lrelu(x, n, leak=0.2): 
     return tf.maximum(x, leak * x, name=n) 
@@ -38,6 +38,8 @@ def process_data():
                                         
     content = tf.read_file(images_queue[0])
     image = tf.image.decode_jpeg(content, channels = CHANNEL)
+    size = [HEIGHT, WIDTH]
+    image = tf.image.resize_images(image, size)
     # sess1 = tf.Session()
     # print sess1.run(image)
     image = tf.image.random_flip_left_right(image)
@@ -45,8 +47,6 @@ def process_data():
     image = tf.image.random_contrast(image, lower = 0.9, upper = 1.1)
     # noise = tf.Variable(tf.truncated_normal(shape = [HEIGHT,WIDTH,CHANNEL], dtype = tf.float32, stddev = 1e-3, name = 'noise')) 
     # print image.get_shape()
-    size = [HEIGHT, WIDTH]
-    image = tf.image.resize_images(image, size)
     image.set_shape([HEIGHT,WIDTH,CHANNEL])
     # image = image + noise
     # image = tf.transpose(image, perm=[2, 0, 1])
@@ -55,13 +55,13 @@ def process_data():
     image = tf.cast(image, tf.float32)
     image = image / 255.0
     
-    iamges_batch = tf.train.shuffle_batch(
+    images_batch = tf.train.shuffle_batch(
                                     [image], batch_size = BATCH_SIZE,
                                     num_threads = 4, capacity = 200 + 3* BATCH_SIZE,
                                     min_after_dequeue = 200)
     num_images = len(images)
 
-    return iamges_batch, num_images
+    return images_batch, num_images
 
 def generator(input, random_dim, is_train, reuse=False):
     c4, c8, c16, c32, c64 = 512, 256, 128, 64, 32 # channel num
@@ -174,12 +174,18 @@ def train():
     
     # wgan
     fake_image = generator(random_input, random_dim, is_train)
+
+    tf.summary.image('fake_image', fake_image)
+    tf.summary.image('real_image', real_image)
     
     real_result = discriminator(real_image, is_train)
     fake_result = discriminator(fake_image, is_train, reuse=True)
     
     d_loss = tf.reduce_mean(fake_result) - tf.reduce_mean(real_result)  # This optimizes the discriminator.
     g_loss = -tf.reduce_mean(fake_result)  # This optimizes the generator.
+
+    tf.summary.scalar('d_loss', d_loss)
+    tf.summary.image('g_loss', g_loss)
             
 
     t_vars = tf.trainable_variables()
@@ -187,8 +193,8 @@ def train():
     g_vars = [var for var in t_vars if 'gen' in var.name]
     # test
     # print(d_vars)
-    trainer_d = tf.train.RMSPropOptimizer(learning_rate=2e-4).minimize(d_loss, var_list=d_vars)
-    trainer_g = tf.train.RMSPropOptimizer(learning_rate=2e-4).minimize(g_loss, var_list=g_vars)
+    trainer_d = tf.train.RMSPropOptimizer(learning_rate=5e-5).minimize(d_loss, var_list=d_vars)
+    trainer_g = tf.train.RMSPropOptimizer(learning_rate=5e-5).minimize(g_loss, var_list=g_vars)
     # clip discriminator weights
     d_clip = [v.assign(tf.clip_by_value(v, -0.01, 0.01)) for v in d_vars]
 
@@ -200,12 +206,15 @@ def train():
     total_batch = 0
     sess = tf.Session()
     saver = tf.train.Saver()
+    train_writer = tf.summary.FileWriter('./model/train/', sess.graph)
     sess.run(tf.global_variables_initializer())
     sess.run(tf.local_variables_initializer())
     # continue training
     save_path = saver.save(sess, "/tmp/model.ckpt")
-    ckpt = tf.train.latest_checkpoint('./model/' + version)
-    saver.restore(sess, save_path)
+    ckpt = tf.train.latest_checkpoint('./model/')
+    if(ckpt != None):
+        saver.restore(sess, ckpt)
+        print("Restoring old weights")
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
@@ -213,9 +222,9 @@ def train():
     print('batch size: %d, batch num per epoch: %d, epoch num: %d' % (batch_size, batch_num, EPOCH))
     print('start training...')
     for i in range(EPOCH):
-        print(i)
+        print("Epoch no :", i)
         for j in range(batch_num):
-            print(j)
+            print("Batch No : ", j)
             d_iters = 5
             g_iters = 1
 
@@ -238,12 +247,12 @@ def train():
 
             # print 'train:[%d/%d],d_loss:%f,g_loss:%f' % (i, j, dLoss, gLoss)
             
-        # save check point every 500 epoch
-        if i%500 == 0:
-            if not os.path.exists('./model/' + version):
-                os.makedirs('./model/' + version)
-            saver.save(sess, './model/' +version + '/' + str(i))  
-        if i%50 == 0:
+        # save check point every 50 epoch
+        if i%5 == 0:
+            if not os.path.exists('./model/'):
+                os.makedirs('./model/')
+            saver.save(sess, './model/' + modelName, global_step=i)  
+        if i%5 == 0:
             # save images
             if not os.path.exists(newPoke_path):
                 os.makedirs(newPoke_path)
@@ -274,7 +283,7 @@ def train():
     # variables_to_restore = slim.get_variables_to_restore(include=['gen'])
     # print(variables_to_restore)
     # saver = tf.train.Saver(variables_to_restore)
-    # ckpt = tf.train.latest_checkpoint('./model/' + version)
+    # ckpt = tf.train.latest_checkpoint('./model/' + modelName)
     # saver.restore(sess, ckpt)
 
 
