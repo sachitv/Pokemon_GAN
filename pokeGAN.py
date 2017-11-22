@@ -193,11 +193,26 @@ def train():
     g_vars = [var for var in t_vars if 'gen' in var.name]
     # test
     # print(d_vars)
-    trainer_d = tf.train.RMSPropOptimizer(learning_rate=5e-5).minimize(d_loss, var_list=d_vars)
-    trainer_g = tf.train.RMSPropOptimizer(learning_rate=5e-5).minimize(g_loss, var_list=g_vars)
-    # clip discriminator weights
-    d_clip = [v.assign(tf.clip_by_value(v, -0.01, 0.01)) for v in d_vars]
 
+    mode ='wgan-gp'
+
+    if mode == 'wgan':
+        trainer_d = tf.train.RMSPropOptimizer(learning_rate=5e-5).minimize(d_loss, var_list=d_vars)
+        trainer_g = tf.train.RMSPropOptimizer(learning_rate=5e-5).minimize(g_loss, var_list=g_vars)
+        # clip discriminator weights
+        d_clip = [v.assign(tf.clip_by_value(v, -0.01, 0.01)) for v in d_vars]
+    elif mode =='wgan-gp':
+        LAMBDA = 10
+        alpha = tf.random_uniform( shape=[BATCH_SIZE, HEIGHT, WIDTH, CHANNEL], minval=0.,maxval=1.)
+        differences = fake_image - real_image
+        interpolates = real_image + (alpha * differences)
+        gradients = tf.gradients(discriminator(interpolates, is_train, reuse=True), [interpolates])[0]
+        slopes = tf.sqrt(tf.reduce_sum(tf.square(gradients), reduction_indices=[1]))
+        gradient_penalty = tf.reduce_mean((slopes-1.)**2)
+        d_loss += LAMBDA*gradient_penalty
+
+        trainer_g = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(g_loss, var_list=g_vars)
+        trainer_d = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(d_loss, var_list=d_vars)
     
     batch_size = BATCH_SIZE
     image_batch, samples_num = process_data()
@@ -233,7 +248,8 @@ def train():
                 print(k)
                 train_image = sess.run(image_batch)
                 #wgan clip weights
-                sess.run(d_clip)
+                if mode == 'wgan':
+                    sess.run(d_clip)
                 
                 # Update the discriminator
                 _, dLoss = sess.run([trainer_d, d_loss],
